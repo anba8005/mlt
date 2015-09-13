@@ -85,15 +85,16 @@ else
 		if [ -d "$static_ffmpeg" ]
 		then
 			echo "CFLAGS+=-DAVDATADIR=\\\"${static_ffmpeg}/ffpresets/\\\"" >> config.mak
-			echo "CFLAGS+=-I$static_ffmpeg" >> config.mak
-			echo "LDFLAGS+=-L$static_ffmpeg/libavformat -L$static_ffmpeg/libavcodec -L$static_ffmpeg/libavutil" >> config.mak
-			echo "LDFLAGS+=-L$static_ffmpeg/libswscale" >> config.mak
-			[ $targetos = "Darwin" ] &&
-			 	echo "LDFLAGS+=-single_module" >> config.mak
+			echo "CFLAGS+=-I$static_ffmpeg/include" >> config.mak
 			if [ "$devices" = "true" ]
 			then
-				echo "LDFLAGS+=-L$static_ffmpeg/libavdevice" >> config.mak
+				echo "LDFLAGS+=$static_ffmpeg/lib/libavdevice.a" >> config.mak
 			fi
+			echo "LDFLAGS+=$static_ffmpeg/lib/libavfilter.a $static_ffmpeg/lib/libpostproc.a" >> config.mak
+			echo "LDFLAGS+=$static_ffmpeg/lib/libavformat.a $static_ffmpeg/lib/libavcodec.a $static_ffmpeg/lib/libavutil.a" >> config.mak
+			echo "LDFLAGS+=$static_ffmpeg/lib/libswscale.a $static_ffmpeg/lib/libswresample.a" >> config.mak
+			[ $targetos = "Darwin" ] &&
+			 	echo "LDFLAGS+=-single_module" >> config.mak
 			echo "LDFLAGS+=-Wl,-Bsymbolic" >> config.mak
 			extra_libs="$extra_libs -lm -lz -lbz2"
 			

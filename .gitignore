@@ -29,3 +29,6 @@ mlt-config
 packages.dat
 make.inc
 src/examples/play
+.settings/
+.cproject
+.project

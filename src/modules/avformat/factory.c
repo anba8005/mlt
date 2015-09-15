@@ -30,12 +30,14 @@ extern mlt_filter filter_avdeinterlace_init( void *arg );
 extern mlt_filter filter_avresample_init( char *arg );
 extern mlt_filter filter_swscale_init( mlt_profile profile, char *arg );
 extern mlt_producer producer_avformat_init( mlt_profile profile, const char *service, char *file );
+extern mlt_filter filter_avfilter_init( mlt_profile profile, char *arg );
 
 // ffmpeg Header files
 #include <libavformat/avformat.h>
 #ifdef AVDEVICE
 #include <libavdevice/avdevice.h>
 #endif
+#include <libavfilter/avfilter.h>
 #include <libavutil/opt.h>
 
 
@@ -89,6 +91,7 @@ static void avformat_init( )
 #ifdef AVDEVICE
 		avdevice_register_all();
 #endif
+		avfilter_register_all();
 		avformat_network_init();
 		av_log_set_level( mlt_log_get_level() );
 		if ( getenv("MLT_AVFORMAT_PRODUCER_CACHE") )
@@ -124,6 +127,8 @@ static void *create_service( mlt_profile profile, mlt_service_type type, const c
 #endif
 	if ( !strcmp( id, "swscale" ) )
 		return filter_swscale_init( profile, arg );
+	if ( !strcmp( id, "avfilter" ) )
+			return filter_avfilter_init( profile, arg );
 #endif
 	return NULL;
 }
@@ -348,5 +353,6 @@ MLT_REPOSITORY
 	MLT_REGISTER( filter_type, "avresample", create_service );
 #endif
 	MLT_REGISTER( filter_type, "swscale", create_service );
+	MLT_REGISTER( filter_type, "avfilter", create_service );
 #endif
 }

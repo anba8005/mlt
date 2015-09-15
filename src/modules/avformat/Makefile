@@ -18,7 +18,8 @@ ifdef FILTERS
 OBJS += filter_avcolour_space.o \
 	    filter_avresample.o \
 	    filter_avdeinterlace.o \
-	    filter_swscale.o
+	    filter_swscale.o \
+	    filter_avfilter.o
 CFLAGS += -DFILTERS
 endif
 

@@ -29,14 +29,16 @@
 #include <libavfilter/avfiltergraph.h>
 #include <libavfilter/buffersink.h>
 #include <libavfilter/buffersrc.h>
-#include <libavutil/pixdesc.h>
+#include <libavcodec/avcodec.h>
 #include <libavutil/opt.h>
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-static inline int convert_mlt_to_av_cs(mlt_image_format format) {
+const int MEM_ALIGN = 32;
+
+static int convert_mlt_to_av_cs(mlt_image_format format) {
 	int value = 0;
 
 	switch (format) {
@@ -54,7 +56,7 @@ static inline int convert_mlt_to_av_cs(mlt_image_format format) {
 		value = AV_PIX_FMT_YUV420P;
 		break;
 	default:
-		mlt_log_error(NULL, "error converting format %i\n",format);
+		mlt_log_error(NULL, "[filter avfilter] Invalid format %s\n", mlt_image_format_name(format));
 		break;
 	}
 
@@ -79,19 +81,18 @@ static void create_filtergraph(mlt_filter self, mlt_properties properties, int m
 	int format = convert_mlt_to_av_cs(mlt_properties_get_int(properties, "format"));
 	int frame_rate_num = mlt_properties_get_int(properties, "meta.media.frame_rate_num");
 	int frame_rate_den = mlt_properties_get_int(properties, "meta.media.frame_rate_den");
-	int target_format = 0;//convert_mlt_to_av_cs(mlt_target_format);
-
+	int frame_sar_num = mlt_properties_get_int(properties, "meta.media.sample_aspect_num");
+	int frame_sar_den = mlt_properties_get_int(properties, "meta.media.sample_aspect_den");
 	//
-	mlt_properties filter_properties = MLT_FILTER_PROPERTIES(self);
-	int sar_num =  mlt_properties_get_int(filter_properties, "sar_num");
-	int sar_den =  mlt_properties_get_int(filter_properties, "sar_den");
+	int target_format = convert_mlt_to_av_cs(mlt_target_format);
 
 	// create input
 	AVFilterContext* input;
 	char args[512];
 	snprintf(args, sizeof(args), "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:frame_rate=%d/%d:pixel_aspect=%d/%d",
-			width, height, format, frame_rate_den, frame_rate_num, frame_rate_num, frame_rate_den,
-			sar_num, sar_den);
+			width, height, format, frame_rate_den, frame_rate_num, frame_rate_num, frame_rate_den, frame_sar_num,
+			frame_sar_den);
+	mlt_log_info(self, "input is -> %s\n",args);
 	int result = avfilter_graph_create_filter(&input, avfilter_get_by_name("buffer"), "in", args, NULL, graph);
 	if (result < 0) {
 		mlt_log_error(self, "error creating video filter input\n");
@@ -126,9 +127,10 @@ static void create_filtergraph(mlt_filter self, mlt_properties properties, int m
 	inputs->next = NULL;
 
 	// create graph
-	char *filter = mlt_properties_get(self,"filter");
+	char *filter = mlt_properties_get(MLT_FILTER_PROPERTIES(self), "filter");
 	if (filter == NULL)
 		filter = "copy";
+	mlt_log_info(self, "filter is -> %s\n",filter);
 	result = avfilter_graph_parse_ptr(graph, filter, &inputs, &outputs, NULL);
 	if (result < 0) {
 		mlt_log_error(self, "error creating video filter graph\n");
@@ -143,7 +145,23 @@ static void create_filtergraph(mlt_filter self, mlt_properties properties, int m
 	}
 
 	// save
+	mlt_properties filter_properties = MLT_FILTER_PROPERTIES(self);
 	mlt_properties_set_data(filter_properties, "filtergraph", graph, 0, (mlt_destructor) close_filtergraph, NULL);
+	mlt_properties_set_data(filter_properties, "filtergraph_input", input, 0, NULL, NULL);
+	mlt_properties_set_data(filter_properties, "filtergraph_output", output, 0, NULL, NULL);
+	mlt_properties_set_int(filter_properties, "last_frame_pts", -1);
+}
+
+static AVFrame* create_avframe(int format, int width, int height, long pts, int interlaced, int tff) {
+	AVFrame* frame = av_frame_alloc();
+	frame->format = format;
+	frame->width = width;
+	frame->height = height;
+	frame->pts = pts;
+	frame->interlaced_frame = interlaced;
+	frame->top_field_first = tff;
+	av_frame_get_buffer(frame, MEM_ALIGN);
+	return frame;
 }
 
 static int avfilter_get_image(mlt_frame frame, uint8_t **image, mlt_image_format *format, int *width, int *height,
@@ -152,6 +170,8 @@ static int avfilter_get_image(mlt_frame frame, uint8_t **image, mlt_image_format
 	mlt_properties properties = MLT_FRAME_PROPERTIES(frame);
 	mlt_filter filter = mlt_frame_pop_service(frame);
 	mlt_properties filter_properties = MLT_FILTER_PROPERTIES(filter);
+	if (*format == mlt_image_none)
+		*format = mlt_image_yuv422;
 
 	// get graph
 	AVFilterGraph* graph = mlt_properties_get_data(filter_properties, "filtergraph", NULL);
@@ -162,6 +182,76 @@ static int avfilter_get_image(mlt_frame frame, uint8_t **image, mlt_image_format
 			return 1;
 		}
 	}
+
+	//
+	int frame_width = mlt_properties_get_int(properties, "width");
+	int frame_height = mlt_properties_get_int(properties, "height");
+	int frame_format = mlt_properties_get_int(properties, "format");
+	int frame_avformat = convert_mlt_to_av_cs(frame_format);
+	int frame_interlaced = !mlt_properties_get_int(properties, "progressive");
+	int frame_tff = mlt_properties_get_int(properties, "top_field_first");
+
+	//
+	int error = mlt_frame_get_image(frame, image, &frame_format, &frame_width, &frame_height, 1);
+	if (error)
+		return 1;
+
+start_filtering: ;
+
+	//
+	int frame_pts = mlt_properties_get_int(filter_properties, "last_frame_pts") + 1;
+	mlt_properties_set_int(filter_properties, "last_frame_pts", frame_pts);
+
+	//
+	AVFrame* input_avframe = create_avframe(frame_avformat, frame_width, frame_height, frame_pts, frame_interlaced,
+			frame_tff);
+	if (!input_avframe)
+		return 1;
+
+	//
+	AVPicture picture;
+	memset(&picture, 0, sizeof(AVPicture));
+	av_image_fill_arrays(picture.data, picture.linesize, (uint8_t*) *image, frame_avformat, frame_width, frame_height,
+			MEM_ALIGN);
+	av_image_copy(input_avframe->data, input_avframe->linesize, (const uint8_t**) picture.data, picture.linesize,
+			frame_avformat, frame_width, frame_height);
+
+	//
+	AVFilterContext* input = mlt_properties_get_data(filter_properties, "filtergraph_input", NULL);
+	av_buffersrc_add_frame_flags(input, input_avframe, AV_BUFFERSRC_FLAG_KEEP_REF);
+	av_frame_free(&input_avframe);
+
+	//
+	AVFilterContext* output = mlt_properties_get_data(filter_properties, "filtergraph_output", NULL);
+	AVFrame* output_avframe = av_frame_alloc();
+	int result = av_buffersink_get_frame(output, output_avframe);
+	if (result == AVERROR(EAGAIN) || result == AVERROR_EOF) {
+		if (frame_pts == 0) {
+			// initial delay caused by yadif
+			goto start_filtering;
+		} else {
+			mlt_log_error(filter, "buffersink returned %s\n",av_err2str(result));
+			return 1;
+		}
+	} else if (result < 0) {
+		mlt_log_error(filter, "buffersink returned %s\n",av_err2str(result));
+		return 1;
+	}
+
+	// allocate output
+	*width = output_avframe->width;
+	*height = output_avframe->height;
+	int size = mlt_image_format_size(*format, *width, *height, 0);
+	uint8_t *output_image = mlt_pool_alloc(size);
+	if (!output_image)
+		return 1;
+
+	// fill output
+	int avsize = avpicture_get_size(output_avframe->format,*width, *height);
+	memcpy(output_image,output_avframe->data[0],output_avframe->linesize[0] * output_avframe->height);
+	av_frame_free(&output_avframe);
+	mlt_frame_set_image(frame, output_image, size, mlt_pool_release);
+	*image = output_image;
 
 	return 0;
 }
@@ -177,8 +267,8 @@ mlt_filter filter_avfilter_init(mlt_profile profile, mlt_service_type type, cons
 	if (filter != NULL) {
 		filter->process = avfilter_process;
 		mlt_properties filter_properties = MLT_FILTER_PROPERTIES(filter);
-		mlt_properties_set_int(filter_properties,"sar_num",profile->sample_aspect_num);
-		mlt_properties_set_int(filter_properties,"sar_den",profile->sample_aspect_den);
+		mlt_properties_set_int(filter_properties, "sar_num", profile->sample_aspect_num);
+		mlt_properties_set_int(filter_properties, "sar_den", profile->sample_aspect_den);
 
 	}
 	return filter;

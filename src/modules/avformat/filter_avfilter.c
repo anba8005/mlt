@@ -37,6 +37,8 @@
 #include <string.h>
 
 const int MEM_ALIGN = 32;
+#define TRUE 1
+#define FALSE 0
 
 static int convert_mlt_to_av_cs(mlt_image_format format) {
 	int value = 0;
@@ -68,7 +70,8 @@ void close_filtergraph(AVFilterGraph* graph) {
 		avfilter_graph_free(&graph);
 }
 
-static void create_filtergraph(mlt_filter self, mlt_properties properties, int mlt_target_format) {
+static void create_filtergraph(mlt_filter self, const char* filter, mlt_properties properties, int mlt_target_format,
+		int mlt_frame_format) {
 	//
 	AVFilterGraph* graph = avfilter_graph_alloc();
 	if (graph == NULL)
@@ -78,7 +81,7 @@ static void create_filtergraph(mlt_filter self, mlt_properties properties, int m
 	//
 	int width = mlt_properties_get_int(properties, "width");
 	int height = mlt_properties_get_int(properties, "height");
-	int format = convert_mlt_to_av_cs(mlt_properties_get_int(properties, "format"));
+	int format = convert_mlt_to_av_cs(mlt_frame_format);
 	int frame_rate_num = mlt_properties_get_int(properties, "meta.media.frame_rate_num");
 	int frame_rate_den = mlt_properties_get_int(properties, "meta.media.frame_rate_den");
 	int frame_sar_num = mlt_properties_get_int(properties, "meta.media.sample_aspect_num");
@@ -92,7 +95,7 @@ static void create_filtergraph(mlt_filter self, mlt_properties properties, int m
 	snprintf(args, sizeof(args), "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:frame_rate=%d/%d:pixel_aspect=%d/%d",
 			width, height, format, frame_rate_den, frame_rate_num, frame_rate_num, frame_rate_den, frame_sar_num,
 			frame_sar_den);
-	mlt_log_info(self, "input is -> %s\n",args);
+	mlt_log_info(self, "video input is -> %s\n", args);
 	int result = avfilter_graph_create_filter(&input, avfilter_get_by_name("buffer"), "in", args, NULL, graph);
 	if (result < 0) {
 		mlt_log_error(self, "error creating video filter input\n");
@@ -127,10 +130,9 @@ static void create_filtergraph(mlt_filter self, mlt_properties properties, int m
 	inputs->next = NULL;
 
 	// create graph
-	char *filter = mlt_properties_get(MLT_FILTER_PROPERTIES(self), "filter");
-	if (filter == NULL)
+	if (filter == NULL || !strcmp(filter, ""))
 		filter = "copy";
-	mlt_log_info(self, "filter is -> %s\n",filter);
+	mlt_log_info(self, "video filter is -> %s\n", filter);
 	result = avfilter_graph_parse_ptr(graph, filter, &inputs, &outputs, NULL);
 	if (result < 0) {
 		mlt_log_error(self, "error creating video filter graph\n");
@@ -164,39 +166,150 @@ static AVFrame* create_avframe(int format, int width, int height, long pts, int 
 	return frame;
 }
 
+static void create_vfilter(char* vfilter, mlt_properties properties, int frame_width, int frame_height,
+		int frame_interlaced, int frame_tff, int target_width, int target_height, int target_interlaced, int target_tff) {
+	// set defaults
+	int tinterlaced = FALSE;
+	int deinterlaced = FALSE;
+	strcpy(vfilter, "");
+
+	// add crop
+	int left = mlt_properties_get_int(properties, "crop.left");
+	int right = mlt_properties_get_int(properties, "crop.right");
+	int top = mlt_properties_get_int(properties, "crop.top");
+	int bottom = mlt_properties_get_int(properties, "crop.bottom");
+	if (left || right || top || bottom) {
+		if (!!strcmp(vfilter, ""))
+			strcat(vfilter, ",");
+		char crop[128];
+		frame_width -= left + right;
+		frame_height -= top + bottom;
+		snprintf(crop, sizeof(crop), "crop=%d:%d:%d:%d", frame_width, frame_height, left, top);
+		strcat(vfilter, crop);
+		// reset
+		mlt_properties_set_int(properties, "crop.left",0);
+		mlt_properties_set_int(properties, "crop.right",0);
+		mlt_properties_set_int(properties, "crop.top",0);
+		mlt_properties_set_int(properties, "crop.bottom",0);
+	}
+
+	// add resize
+	if (frame_width != target_width || frame_height != target_height) {
+
+		// prepare for scaling
+		char resize[128];
+		char* deinterlacer = "";
+		if (frame_interlaced) {
+			if (target_interlaced) {
+				// (interlaced scaling via progressive)
+				// via yadif , double fps (and tinterlace later) (50i -> 50i)
+				deinterlacer = "yadif=1,";
+			} else {
+				// 50i -> 25p
+				deinterlacer = "yadif,";
+				deinterlaced = TRUE;
+			}
+		}
+
+		// check if should reinterlace after scaling via progressive
+		char* reinterlacer = "";
+		if (frame_interlaced && target_interlaced) {
+			if (target_tff) {
+				reinterlacer = ",tinterlace=4:flags=vlpf";
+			} else {
+				reinterlacer = ",tinterlace=5:flags=vlpf";
+			}
+			tinterlaced = TRUE;
+		}
+
+		// scale progressively
+		snprintf(resize, sizeof(resize), "%sscale=%d:%d:interl=0:flags=lanczos%s", deinterlacer, target_height,
+				target_width, reinterlacer);
+
+		// update
+		if (!!strcmp(vfilter, ""))
+			strcat(vfilter, ",");
+		strcat(vfilter, resize);
+	}
+
+	// add field order
+	if (frame_interlaced && target_interlaced && frame_tff != target_tff && !tinterlaced) {
+		if (!!strcmp(vfilter, ""))
+			strcat(vfilter, ",");
+		if (target_tff) {
+			strcat(vfilter, "fieldorder=tff");
+		} else {
+			strcat(vfilter, "fieldorder=bff");
+		}
+	}
+
+	// add deinterlacing if not already
+	if (frame_interlaced && !target_interlaced && !deinterlaced) {
+		if (!!strcmp(vfilter, ""))
+			strcat(vfilter, ",");
+		strcat(vfilter, "yadif");
+	}
+}
+
 static int avfilter_get_image(mlt_frame frame, uint8_t **image, mlt_image_format *format, int *width, int *height,
 		int writable) {
-	// Get the properties
-	mlt_properties properties = MLT_FRAME_PROPERTIES(frame);
+	// filter properties
 	mlt_filter filter = mlt_frame_pop_service(frame);
 	mlt_properties filter_properties = MLT_FILTER_PROPERTIES(filter);
 	if (*format == mlt_image_none)
 		*format = mlt_image_yuv422;
+	if (*width == 0 || *height == 0) {
+		mlt_profile profile = mlt_service_profile(MLT_FILTER_SERVICE(filter));
+		*width = profile->width;
+		*height = profile->height;
+	}
+
+	// get frame
+	mlt_properties properties = MLT_FRAME_PROPERTIES(frame);
+	int frame_width = mlt_properties_get_int(properties, "width");
+	int frame_height = mlt_properties_get_int(properties, "height");
+	int frame_format = mlt_properties_get_int(properties, "format");
+	if (frame_format == mlt_image_none)
+		frame_format = mlt_image_yuv422; // TODO detect 422 or 420
+	//
+	int error = mlt_frame_get_image(frame, image, &frame_format, &frame_width, &frame_height, 1);
+	if (error)
+		return 1;
+	//
+	int frame_avformat = convert_mlt_to_av_cs(frame_format);
+	int frame_interlaced = !mlt_properties_get_int(properties, "progressive");
+	int frame_tff = mlt_properties_get_int(properties, "top_field_first");
+
+	// get target
+	int target_width = *width;
+	int target_height = *height;
+	int target_format = *format;
+	int target_interlaced = !mlt_properties_get_int(MLT_FRAME_PROPERTIES(frame), "consumer_deinterlace");
+	int target_tff = 1; // always :)
+
+	// get vfilter string
+	char vfilter[1024];
+	if (target_height == frame_height && target_width == frame_width && target_format == frame_format
+			&& target_interlaced == frame_interlaced && target_tff == frame_tff) {
+		// a.k.a copy :)
+		return 0;
+	} else {
+		// create/check if changed
+		create_vfilter(vfilter, properties, frame_width, frame_height, frame_interlaced, frame_tff, target_width,
+				target_height, target_interlaced, target_tff);
+	}
 
 	// get graph
 	AVFilterGraph* graph = mlt_properties_get_data(filter_properties, "filtergraph", NULL);
 	if (graph == NULL) {
-		create_filtergraph(filter, properties, *format);
+		create_filtergraph(filter, vfilter, properties, target_format, frame_format);
 		graph = mlt_properties_get_data(filter_properties, "filtergraph", NULL);
 		if (graph == NULL) {
 			return 1;
 		}
 	}
 
-	//
-	int frame_width = mlt_properties_get_int(properties, "width");
-	int frame_height = mlt_properties_get_int(properties, "height");
-	int frame_format = mlt_properties_get_int(properties, "format");
-	int frame_avformat = convert_mlt_to_av_cs(frame_format);
-	int frame_interlaced = !mlt_properties_get_int(properties, "progressive");
-	int frame_tff = mlt_properties_get_int(properties, "top_field_first");
-
-	//
-	int error = mlt_frame_get_image(frame, image, &frame_format, &frame_width, &frame_height, 1);
-	if (error)
-		return 1;
-
-start_filtering: ;
+	start_filtering: ;
 
 	//
 	int frame_pts = mlt_properties_get_int(filter_properties, "last_frame_pts") + 1;
@@ -230,25 +343,30 @@ start_filtering: ;
 			// initial delay caused by yadif
 			goto start_filtering;
 		} else {
-			mlt_log_error(filter, "buffersink returned %s\n",av_err2str(result));
+			mlt_log_error(filter, "buffersink returned %s\n", av_err2str(result));
 			return 1;
 		}
 	} else if (result < 0) {
-		mlt_log_error(filter, "buffersink returned %s\n",av_err2str(result));
+		mlt_log_error(filter, "buffersink returned %s\n", av_err2str(result));
 		return 1;
 	}
 
 	// allocate output
-	*width = output_avframe->width;
-	*height = output_avframe->height;
-	int size = mlt_image_format_size(*format, *width, *height, 0);
+	int size = mlt_image_format_size(*format, output_avframe->width, output_avframe->height, 0);
 	uint8_t *output_image = mlt_pool_alloc(size);
 	if (!output_image)
 		return 1;
 
 	// fill output
-	int avsize = avpicture_get_size(output_avframe->format,*width, *height);
-	memcpy(output_image,output_avframe->data[0],output_avframe->linesize[0] * output_avframe->height);
+	*width = output_avframe->width;
+	*height = output_avframe->height;
+	mlt_properties_set_int(properties, "rescale_width", *width);
+	mlt_properties_set_int(properties, "rescale_height", *height);
+	mlt_properties_set_int(properties, "progressive", !output_avframe->interlaced_frame);
+	mlt_properties_set_int(properties, "top_field_first", output_avframe->top_field_first);
+	mlt_properties_set_int(properties, "meta.top_field_first", output_avframe->top_field_first);
+	int avsize = avpicture_get_size(output_avframe->format, *width, *height);
+	memcpy(output_image, output_avframe->data[0], output_avframe->linesize[0] * output_avframe->height);
 	av_frame_free(&output_avframe);
 	mlt_frame_set_image(frame, output_image, size, mlt_pool_release);
 	*image = output_image;

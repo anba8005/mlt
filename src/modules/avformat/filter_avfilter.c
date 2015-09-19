@@ -187,10 +187,10 @@ static void create_vfilter(char* vfilter, mlt_properties properties, int frame_w
 		snprintf(crop, sizeof(crop), "crop=%d:%d:%d:%d", frame_width, frame_height, left, top);
 		strcat(vfilter, crop);
 		// reset
-		mlt_properties_set_int(properties, "crop.left",0);
-		mlt_properties_set_int(properties, "crop.right",0);
-		mlt_properties_set_int(properties, "crop.top",0);
-		mlt_properties_set_int(properties, "crop.bottom",0);
+		mlt_properties_set_int(properties, "crop.left", 0);
+		mlt_properties_set_int(properties, "crop.right", 0);
+		mlt_properties_set_int(properties, "crop.top", 0);
+		mlt_properties_set_int(properties, "crop.bottom", 0);
 	}
 
 	// add resize
@@ -223,8 +223,8 @@ static void create_vfilter(char* vfilter, mlt_properties properties, int frame_w
 		}
 
 		// scale progressively
-		snprintf(resize, sizeof(resize), "%sscale=%d:%d:interl=0:flags=lanczos%s", deinterlacer, target_height,
-				target_width, reinterlacer);
+		snprintf(resize, sizeof(resize), "%sscale=%d:%d:interl=0:flags=lanczos%s", deinterlacer, target_width,
+				target_height, reinterlacer);
 
 		// update
 		if (!!strcmp(vfilter, ""))
@@ -284,8 +284,8 @@ static int avfilter_get_image(mlt_frame frame, uint8_t **image, mlt_image_format
 	int target_width = *width;
 	int target_height = *height;
 	int target_format = *format;
-	int target_interlaced = !mlt_properties_get_int(MLT_FRAME_PROPERTIES(frame), "consumer_deinterlace");
-	int target_tff = 1; // always :)
+	int target_interlaced = !mlt_properties_get_int(properties, "consumer_deinterlace");
+	int target_tff = mlt_properties_get_int(properties, "consumer_tff");
 
 	// get vfilter string
 	char vfilter[1024];

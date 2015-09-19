@@ -229,6 +229,13 @@ public:
 			return false;
 		}
 
+		// Set field dominance
+		if (m_displayMode->GetFieldDominance() == bmdUpperFieldFirst) {
+			mlt_properties_set_int( properties, "top_field_first", 1);
+		} else if (m_displayMode->GetFieldDominance() == bmdUpperFieldFirst) {
+			mlt_properties_set_int( properties, "top_field_first", 0);
+		}
+
 		// Set the keyer
 		if ( m_deckLinkKeyer && ( m_isKeyer = mlt_properties_get_int( properties, "keyer" ) ) )
 		{
@@ -415,11 +422,7 @@ public:
 				if ( !m_isKeyer )
 				{
 					// Normal non-keyer playout - needs byte swapping
-					if ( !progressive && m_displayMode->GetFieldDominance() == bmdUpperFieldFirst )
-						// convert lower field first to top field first
-						swab2( (char*) image, (char*) buffer + stride, stride * ( height - 1 ) );
-					else
-						swab2( (char*) image, (char*) buffer, stride * height );
+					swab2( (char*) image, (char*) buffer, stride * height );
 				}
 				else if ( !mlt_properties_get_int( MLT_FRAME_PROPERTIES( frame ), "test_image" ) )
 				{
@@ -427,14 +430,6 @@ public:
 					int y = height + 1;
 					uint32_t* s = (uint32_t*) image;
 					uint32_t* d = (uint32_t*) buffer;
-
-					if ( !progressive && m_displayMode->GetFieldDominance() == bmdUpperFieldFirst )
-					{
-						// Correct field order
-						height--;
-						y--;
-						d += m_width;
-					}
 
 					// Need to relocate alpha channel RGBA => ARGB
 					while ( --y )

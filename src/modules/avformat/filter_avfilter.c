@@ -253,7 +253,7 @@ static void create_vfilter(char* vfilter, mlt_properties properties, int frame_w
 
 static int avfilter_get_image(mlt_frame frame, uint8_t **image, mlt_image_format *format, int *width, int *height,
 		int writable) {
-	// filter properties
+	// fix filter properties
 	mlt_filter filter = mlt_frame_pop_service(frame);
 	mlt_properties filter_properties = MLT_FILTER_PROPERTIES(filter);
 	if (*format == mlt_image_none)
@@ -264,21 +264,28 @@ static int avfilter_get_image(mlt_frame frame, uint8_t **image, mlt_image_format
 		*height = profile->height;
 	}
 
-	// get frame
+	// skip if progressive (proceed usual way)
 	mlt_properties properties = MLT_FRAME_PROPERTIES(frame);
+	int frame_interlaced = !mlt_properties_get_int(properties, "progressive");
+	if (!frame_interlaced) {
+		return mlt_frame_get_image(frame, image, format, width, height, writable);
+	}
+
+	// get frame
 	int frame_width = mlt_properties_get_int(properties, "width");
 	int frame_height = mlt_properties_get_int(properties, "height");
 	int frame_format = mlt_properties_get_int(properties, "format");
 	if (frame_format == mlt_image_none)
 		frame_format = mlt_image_yuv422; // TODO detect 422 or 420
 	//
-	int error = mlt_frame_get_image(frame, image, &frame_format, &frame_width, &frame_height, 1);
-	if (error)
+	if (mlt_frame_get_image(frame, image, &frame_format, &frame_width, &frame_height, 1))
 		return 1;
 	//
 	int frame_avformat = convert_mlt_to_av_cs(frame_format);
-	int frame_interlaced = !mlt_properties_get_int(properties, "progressive");
 	int frame_tff = mlt_properties_get_int(properties, "top_field_first");
+
+	//fprintf(stderr, "%i - %i %i %i -> %i %i %i\n", filter, *width, *height, *format, frame_width, frame_height,
+	//	frame_format);
 
 	// get target
 	int target_width = *width;
@@ -290,7 +297,8 @@ static int avfilter_get_image(mlt_frame frame, uint8_t **image, mlt_image_format
 	// get vfilter string
 	char vfilter[1024];
 	if (target_height == frame_height && target_width == frame_width && target_format == frame_format
-			&& target_interlaced == frame_interlaced && target_tff == frame_tff) {
+			&& ((target_interlaced == frame_interlaced && target_tff == frame_tff)
+					|| (target_interlaced && !frame_interlaced))) {
 		// a.k.a copy :)
 		return 0;
 	} else {

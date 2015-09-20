@@ -471,6 +471,37 @@ static mlt_service mlt_playlist_virtual_seek( mlt_playlist self, int *progressiv
 	// Seek in real producer to relative position
 	if ( producer != NULL )
 	{
+		// real producer eof handling
+		mlt_properties producer_properties = MLT_PRODUCER_PROPERTIES(producer);
+		char *producer_eof = mlt_properties_get(producer_properties, "eof" );
+		if (position + 1 == self->list[ i ]->frame_count) {
+			//
+			mlt_producer self_producer = MLT_PLAYLIST_PRODUCER( self );
+			if (!strcmp("loop",producer_eof)) {
+				//
+				mlt_producer self_producer = MLT_PLAYLIST_PRODUCER( self );
+				mlt_producer_seek( self_producer, original - position);
+				position = 0;
+			} else if (!strcmp("take-next",producer_eof)) {
+				//
+				int take_next_after = mlt_properties_get_int(producer_properties, "take-next-after");
+				if (take_next_after == -1) {
+					mlt_producer_set_speed( self_producer, 0 );
+					mlt_properties_set_int(producer_properties, "take-next-after", 75);
+				} else {
+					take_next_after--;
+					if (take_next_after == 0) {
+						mlt_properties_set_int(producer_properties, "take-next-after", -1);
+						mlt_producer_seek( self_producer, original + 1);
+					} else {
+						mlt_properties_set_int(producer_properties, "take-next-after", take_next_after);
+					}
+				}
+			}
+		} else {
+			mlt_properties_set_int(producer_properties, "take-next-after", -1);
+		}
+		//
 		int count = self->list[ i ]->frame_count / self->list[ i ]->repeat;
 		*progressive = count == 1;
 		mlt_producer_seek( producer, (int)position % count );

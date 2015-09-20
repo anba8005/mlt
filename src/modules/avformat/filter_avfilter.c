@@ -174,10 +174,10 @@ static void create_vfilter(char* vfilter, mlt_properties properties, int frame_w
 	strcpy(vfilter, "");
 
 	// add crop
-	int left = mlt_properties_get_int(properties, "crop.left");
-	int right = mlt_properties_get_int(properties, "crop.right");
-	int top = mlt_properties_get_int(properties, "crop.top");
-	int bottom = mlt_properties_get_int(properties, "crop.bottom");
+	int left = mlt_properties_get_int(properties, "_crop.left");
+	int right = mlt_properties_get_int(properties, "_crop.right");
+	int top = mlt_properties_get_int(properties, "_crop.top");
+	int bottom = mlt_properties_get_int(properties, "_crop.bottom");
 	if (left || right || top || bottom) {
 		if (!!strcmp(vfilter, ""))
 			strcat(vfilter, ",");
@@ -187,10 +187,10 @@ static void create_vfilter(char* vfilter, mlt_properties properties, int frame_w
 		snprintf(crop, sizeof(crop), "crop=%d:%d:%d:%d", frame_width, frame_height, left, top);
 		strcat(vfilter, crop);
 		// reset
-		mlt_properties_set_int(properties, "crop.left", 0);
-		mlt_properties_set_int(properties, "crop.right", 0);
-		mlt_properties_set_int(properties, "crop.top", 0);
-		mlt_properties_set_int(properties, "crop.bottom", 0);
+		mlt_properties_set_int(properties, "_crop.left", 0);
+		mlt_properties_set_int(properties, "_crop.right", 0);
+		mlt_properties_set_int(properties, "_crop.top", 0);
+		mlt_properties_set_int(properties, "_crop.bottom", 0);
 	}
 
 	// add resize
@@ -277,6 +277,21 @@ static int avfilter_get_image(mlt_frame frame, uint8_t **image, mlt_image_format
 	int frame_format = mlt_properties_get_int(properties, "format");
 	if (frame_format == mlt_image_none)
 		frame_format = mlt_image_yuv422; // TODO detect 422 or 420
+
+	// remember + remove (fieldorder by avfilter)
+	int target_tff = mlt_properties_get_int(properties, "consumer_tff");
+	mlt_properties_set_int(properties,"consumer_tff",0);
+
+	// remember + remove (deinterlace by avfilter)
+	int target_interlaced = !mlt_properties_get_int(properties, "consumer_deinterlace");
+	mlt_properties_set_int(properties,"consumer_deinterlace",0);
+
+	// rename (crop by avfilter)
+	mlt_properties_rename(properties, "crop.left","_crop.left");
+	mlt_properties_rename(properties, "crop.right","_crop.right");
+	mlt_properties_rename(properties, "crop.top","_crop.top");
+	mlt_properties_rename(properties, "crop.bottom","_crop.bottom");
+
 	//
 	if (mlt_frame_get_image(frame, image, &frame_format, &frame_width, &frame_height, 1))
 		return 1;
@@ -291,8 +306,8 @@ static int avfilter_get_image(mlt_frame frame, uint8_t **image, mlt_image_format
 	int target_width = *width;
 	int target_height = *height;
 	int target_format = *format;
-	int target_interlaced = !mlt_properties_get_int(properties, "consumer_deinterlace");
-	int target_tff = mlt_properties_get_int(properties, "consumer_tff");
+
+
 
 	// get vfilter string
 	char vfilter[1024];
@@ -306,6 +321,13 @@ static int avfilter_get_image(mlt_frame frame, uint8_t **image, mlt_image_format
 		create_vfilter(vfilter, properties, frame_width, frame_height, frame_interlaced, frame_tff, target_width,
 				target_height, target_interlaced, target_tff);
 	}
+
+	//
+	int position = mlt_properties_get_int(properties,"_position");
+	int last_position = mlt_properties_get_int(filter_properties,"last_position");
+	if (position != last_position && position != last_position + 1)
+		mlt_properties_set_data(filter_properties, "filtergraph", NULL, 0, NULL, NULL);
+	mlt_properties_set_int(filter_properties,"last_position",position);
 
 	// get graph
 	AVFilterGraph* graph = mlt_properties_get_data(filter_properties, "filtergraph", NULL);

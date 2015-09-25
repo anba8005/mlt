@@ -57,6 +57,8 @@
 #define MAX_VDPAU_SURFACES (10)
 #define MAX_AUDIO_FRAME_SIZE (192000) // 1 second of 48khz 32bit audio
 
+#define INCOMPLETE_FILENAME_SUFFIX ".incompletelock"
+
 struct producer_avformat_s
 {
 	mlt_producer parent;
@@ -523,6 +525,32 @@ static enum AVPixelFormat pick_pix_fmt( enum AVPixelFormat pix_fmt )
 	}
 }
 
+/*
+ * check if file has incomplete flag
+ *
+ */
+static int is_incomplete(AVFormatContext* ctx) {
+	size_t filename_len, ext_len;
+	char *lock_name;
+
+	char *proto = avio_find_protocol_name(ctx->filename);
+	if (strcmp(proto,"file"))
+		return 0;
+
+	ext_len = strlen(INCOMPLETE_FILENAME_SUFFIX);
+	filename_len = strlen(ctx->filename);
+	lock_name = av_malloc(filename_len + ext_len + 2);
+
+	av_strlcpy(lock_name, ctx->filename, filename_len + 1);
+	av_strlcat(lock_name, INCOMPLETE_FILENAME_SUFFIX, filename_len + ext_len + 2);
+
+	if (avio_check(lock_name, AVIO_FLAG_READ) < 0) {
+		return 0;
+	} else {
+		return 1;
+	}
+}
+
 static int get_basic_info( producer_avformat self, mlt_profile profile, const char *filename )
 {
 	int error = 0;
@@ -536,7 +564,7 @@ static int get_basic_info( producer_avformat self, mlt_profile profile, const ch
 	if ( mlt_properties_get_position( properties, "length" ) <= 0 ||
 		 mlt_properties_get_position( properties, "out" ) <= 0 )
 	{
-		if ( format->duration != AV_NOPTS_VALUE )
+		if ( format->duration != AV_NOPTS_VALUE && !is_incomplete(format))
 		{
 			// This isn't going to be accurate for all formats
 			// We will treat everything with the producer fps.
@@ -549,10 +577,11 @@ static int get_basic_info( producer_avformat self, mlt_profile profile, const ch
 		else
 		{
 			// Set live sources to run forever
+			// division by 2 to be able add something to playlist
 			if ( mlt_properties_get_position( properties, "length" ) <= 0 )
-				mlt_properties_set_position( properties, "length", INT_MAX );
+				mlt_properties_set_position( properties, "length", INT_MAX / 2 );
 			if ( mlt_properties_get_position( properties, "out" ) <= 0 )
-				mlt_properties_set_position( properties, "out", INT_MAX - 1 );
+				mlt_properties_set_position( properties, "out", INT_MAX / 2 - 1 );
 			mlt_properties_set( properties, "eof", "loop" );
 		}
 	}

@@ -278,19 +278,26 @@ static int avfilter_get_image(mlt_frame frame, uint8_t **image, mlt_image_format
 	if (frame_format == mlt_image_none)
 		frame_format = mlt_image_yuv422; // TODO detect 422 or 420
 
+
+	// skip if 1920x1080 -> 1440x1080 or vice versa
+	if ((frame_width == 1920 && frame_height == 1080 && *width == 1440 && *height == 1080)
+			|| (frame_width == 1440 && frame_height == 1080 && *width == 1920 && *height == 1080)) {
+		return mlt_frame_get_image(frame, image, format, width, height, writable);
+	}
+
 	// remember + remove (fieldorder by avfilter)
 	int target_tff = mlt_properties_get_int(properties, "consumer_tff");
-	mlt_properties_set_int(properties,"consumer_tff",0);
+	mlt_properties_set_int(properties, "consumer_tff", 0);
 
 	// remember + remove (deinterlace by avfilter)
 	int target_interlaced = !mlt_properties_get_int(properties, "consumer_deinterlace");
-	mlt_properties_set_int(properties,"consumer_deinterlace",0);
+	mlt_properties_set_int(properties, "consumer_deinterlace", 0);
 
 	// rename (crop by avfilter)
-	mlt_properties_rename(properties, "crop.left","_crop.left");
-	mlt_properties_rename(properties, "crop.right","_crop.right");
-	mlt_properties_rename(properties, "crop.top","_crop.top");
-	mlt_properties_rename(properties, "crop.bottom","_crop.bottom");
+	mlt_properties_rename(properties, "crop.left", "_crop.left");
+	mlt_properties_rename(properties, "crop.right", "_crop.right");
+	mlt_properties_rename(properties, "crop.top", "_crop.top");
+	mlt_properties_rename(properties, "crop.bottom", "_crop.bottom");
 
 	//
 	if (mlt_frame_get_image(frame, image, &frame_format, &frame_width, &frame_height, 1))
@@ -307,8 +314,6 @@ static int avfilter_get_image(mlt_frame frame, uint8_t **image, mlt_image_format
 	int target_height = *height;
 	int target_format = *format;
 
-
-
 	// get vfilter string
 	char vfilter[1024];
 	if (target_height == frame_height && target_width == frame_width && target_format == frame_format
@@ -323,11 +328,11 @@ static int avfilter_get_image(mlt_frame frame, uint8_t **image, mlt_image_format
 	}
 
 	//
-	int position = mlt_properties_get_int(properties,"_position");
-	int last_position = mlt_properties_get_int(filter_properties,"last_position");
+	int position = mlt_properties_get_int(properties, "_position");
+	int last_position = mlt_properties_get_int(filter_properties, "last_position");
 	if (position != last_position && position != last_position + 1)
 		mlt_properties_set_data(filter_properties, "filtergraph", NULL, 0, NULL, NULL);
-	mlt_properties_set_int(filter_properties,"last_position",position);
+	mlt_properties_set_int(filter_properties, "last_position", position);
 
 	// get graph
 	AVFilterGraph* graph = mlt_properties_get_data(filter_properties, "filtergraph", NULL);

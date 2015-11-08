@@ -1,6 +1,6 @@
 /*
  * producer_avformat.c -- avformat producer
- * Copyright (C) 2003-2014 Meltytech, LLC
+ * Copyright (C) 2003-2015 Meltytech, LLC
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -274,6 +274,31 @@ static int first_video_index( producer_avformat self )
 	return i;
 }
 
+#if (LIBAVFORMAT_VERSION_INT >= ((55<<16)+(39<<8)+100))
+#include <libavutil/display.h>
+
+static double get_rotation(AVStream *st)
+{
+	AVDictionaryEntry *rotate_tag = av_dict_get( st->metadata, "rotate", NULL, 0 );
+	uint8_t* displaymatrix = av_stream_get_side_data( st, AV_PKT_DATA_DISPLAYMATRIX, NULL);
+	double theta = 0;
+
+	if ( rotate_tag && *rotate_tag->value && strcmp( rotate_tag->value, "0" ) )
+	{
+		char *tail;
+		theta = strtod( rotate_tag->value, &tail );
+		if ( *tail )
+			theta = 0;
+	}
+	if ( displaymatrix && !theta )
+		theta = -av_display_rotation_get( (int32_t*) displaymatrix );
+
+	theta -= 360 * floor( theta/360 + 0.9/360 );
+
+	return theta;
+}
+#endif
+
 /** Find the default streams.
 */
 
@@ -326,6 +351,10 @@ static mlt_properties find_default_streams( producer_avformat self )
 				mlt_properties_set_int( meta_media, key, codec_context->width );
 				snprintf( key, sizeof(key), "meta.media.%d.codec.height", i );
 				mlt_properties_set_int( meta_media, key, codec_context->height );
+#if (LIBAVFORMAT_VERSION_INT >= ((55<<16)+(39<<8)+100))
+				snprintf( key, sizeof(key), "meta.media.%d.codec.rotate", i );
+				mlt_properties_set_int( meta_media, key, get_rotation(context->streams[i]) );
+#endif
 				snprintf( key, sizeof(key), "meta.media.%d.codec.frame_rate", i );
 				AVRational frame_rate = { codec_context->time_base.den, codec_context->time_base.num * codec_context->ticks_per_frame };
 				mlt_properties_set_double( meta_media, key, av_q2d( frame_rate ) );
@@ -829,6 +858,7 @@ static void find_first_pts( producer_avformat self, int video_index )
 	int toscan = 500;
 	AVPacket pkt;
 
+	av_init_packet( &pkt );
 	while ( ret >= 0 && toscan-- > 0 )
 	{
 		ret = av_read_frame( context, &pkt );
@@ -837,7 +867,17 @@ static void find_first_pts( producer_avformat self, int video_index )
 			mlt_log_debug( MLT_PRODUCER_SERVICE(self->parent),
 				"first_pts %"PRId64" dts %"PRId64" pts_dts_delta %d\n",
 				pkt.pts, pkt.dts, (int)(pkt.pts - pkt.dts) );
-			self->first_pts = best_pts( self, pkt.pts, pkt.dts );
+			if ( pkt.dts != AV_NOPTS_VALUE && pkt.dts < 0 )
+				// Decoding Time Stamps with negative values are reported by ffmpeg code for
+				// (at least) MP4 files containing h.264 video using b-frames.
+				// For reasons not understood yet, the first PTS computed then is that of the
+				// third frame, causing MLT to display the third frame as if it was the first.
+				// This if-clause is meant to catch and work around this issue - if there is
+				// a valid, but negative DTS value, we just guess that the first valid
+				// Presentation Time Stamp is == 0.
+				self->first_pts = 0;
+			else
+				self->first_pts = best_pts( self, pkt.pts, pkt.dts );
 			if ( self->first_pts != AV_NOPTS_VALUE )
 				toscan = 0;
 		}
@@ -850,13 +890,15 @@ static int seek_video( producer_avformat self, mlt_position position,
 	int64_t req_position, int preseek )
 {
 	mlt_producer producer = self->parent;
+        mlt_properties properties = MLT_PRODUCER_PROPERTIES( producer );
 	int paused = 0;
+	int seek_threshold = mlt_properties_get_int( properties, "seek_threshold" );
+	if ( seek_threshold <= 0 ) seek_threshold = 12;
 
 	pthread_mutex_lock( &self->packets_mutex );
 
 	if ( self->seekable && ( position != self->video_expected || self->last_position < 0 ) )
 	{
-		mlt_properties properties = MLT_PRODUCER_PROPERTIES( producer );
 
 		// Fetch the video format context
 		AVFormatContext *context = self->video_format;
@@ -879,7 +921,7 @@ static int seek_video( producer_avformat self, mlt_position position,
 			// We're paused - use last image
 			paused = 1;
 		}
-		else if ( self->seekable && ( position < self->video_expected || position - self->video_expected >= 12 || self->last_position < 0 ) )
+		else if ( self->seekable && ( position < self->video_expected || position - self->video_expected >= seek_threshold || self->last_position < 0 ) )
 		{
 			// Calculate the timestamp for the requested frame
 			int64_t timestamp = req_position / ( av_q2d( self->video_time_base ) * source_fps );
@@ -992,13 +1034,13 @@ static int set_luma_transfer( struct SwsContext *context, int src_colorspace,
 	case 470:
 	case 601:
 	case 624:
-		src_coefficients = sws_getCoefficients( SWS_CS_ITU601 );
+		dst_coefficients = sws_getCoefficients( SWS_CS_ITU601 );
 		break;
 	case 240:
-		src_coefficients = sws_getCoefficients( SWS_CS_SMPTE240M );
+		dst_coefficients = sws_getCoefficients( SWS_CS_SMPTE240M );
 		break;
 	case 709:
-		src_coefficients = sws_getCoefficients( SWS_CS_ITU709 );
+		dst_coefficients = sws_getCoefficients( SWS_CS_ITU709 );
 		break;
 	default:
 		break;
@@ -1466,7 +1508,7 @@ static int producer_get_image( mlt_frame frame, uint8_t **buffer, mlt_image_form
 				if ( llabs( req_position - int_position ) > 999 )
 				{
 					int_position = req_position;
-					mlt_log_warning( MLT_PRODUCER_SERVICE(producer), " WILD TIMESTAMP!\n" );
+					mlt_log_verbose( MLT_PRODUCER_SERVICE(producer), " WILD TIMESTAMP!\n" );
 				}
 				self->last_position = int_position;
 
@@ -2528,7 +2570,7 @@ static void producer_set_up_audio( producer_avformat self, mlt_frame frame )
 	}
 
 	// Update the audio properties if the index changed
-	if ( context && index > -1 && index != self->audio_index )
+	if ( context && index > -1 && self->audio_index > -1 && index != self->audio_index )
 	{
 		pthread_mutex_lock( &self->open_mutex );
 		if ( self->audio_codec[ self->audio_index ] )
@@ -2609,7 +2651,7 @@ static int producer_get_frame( mlt_producer producer, mlt_frame_ptr frame, int i
 	producer_set_up_audio( self, *frame );
 
 	// Set the position of this producer
-	mlt_position position = self->seekable ? mlt_producer_frame( producer ) : self->nonseek_position++;
+	mlt_position position = mlt_producer_frame( producer );
 	mlt_properties_set_position( MLT_FRAME_PROPERTIES( *frame ), "original_position", position );
 
 	// Calculate the next timecode

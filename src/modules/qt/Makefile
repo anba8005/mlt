@@ -9,6 +9,7 @@ TARGET = ../libmltqt$(LIBSUF)
 
 OBJS = factory.o producer_qimage.o producer_kdenlivetitle.o
 CPPOBJS = common.o \
+	graph.o \
 	filter_audiowaveform.o \
 	qimage_wrapper.o \
 	kdenlivetitle_wrapper.o \
@@ -25,7 +26,8 @@ ifdef GPL3
 endif
 
 ifdef USE_FFTW
-	CPPOBJS += filter_lightshow.o
+	CPPOBJS += filter_lightshow.o \
+		filter_audiospectrum.o
 	CFLAGS += -DUSE_FFTW
 endif
 

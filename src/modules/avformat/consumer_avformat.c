@@ -1,6 +1,6 @@
 /*
  * consumer_avformat.c -- an encoder based on avformat
- * Copyright (C) 2003-2014 Meltytech, LLC
+ * Copyright (C) 2003-2015 Meltytech, LLC
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -58,7 +58,7 @@
 #define MAX_AUDIO_STREAMS (8)
 #define AUDIO_ENCODE_BUFFER_SIZE (48000 * 2 * MAX_AUDIO_STREAMS)
 #define AUDIO_BUFFER_SIZE (1024 * 42)
-#define VIDEO_BUFFER_SIZE (2048 * 2048)
+#define VIDEO_BUFFER_SIZE (8192 * 8192)
 
 //
 // This structure should be extended and made globally available in mlt
@@ -1776,11 +1776,12 @@ static void *consumer_thread( void *arg )
 						// Convert the mlt frame to an AVPicture
 						if ( img_fmt == mlt_image_yuv420p )
 						{
-							memcpy( video_avframe->data[0], q, video_avframe->linesize[0] );
+							stride = width * height;
+							memcpy( video_avframe->data[0], q, video_avframe->linesize[0] * height );
 							q += stride;
-							memcpy( video_avframe->data[1], q, video_avframe->linesize[1] );
+							memcpy( video_avframe->data[1], q, video_avframe->linesize[1] * height / 2 );
 							q += stride / 4;
-							memcpy( video_avframe->data[2], q, video_avframe->linesize[2] );
+							memcpy( video_avframe->data[2], q, video_avframe->linesize[2] * height / 2 );
 						}
 						else for ( i = 0; i < height; i ++ )
 						{

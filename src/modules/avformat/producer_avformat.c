@@ -626,8 +626,7 @@ static int get_basic_info( producer_avformat self, mlt_profile profile, const ch
 	if ( self->seekable )
 	{
 		// Do a more rigourous test of seekable on a disposable context
-		// SKIP CHECK (mxf seek+codec copy by ffmpeg generated file)
-		//self->seekable = av_seek_frame( format, -1, format->start_time, AVSEEK_FLAG_BACKWARD ) >= 0;
+		self->seekable = av_seek_frame( format, -1, format->start_time, AVSEEK_FLAG_BACKWARD ) >= 0;
 		mlt_properties_set_int( properties, "seekable", self->seekable );
 		self->dummy_context = format;
 		self->video_format = NULL;

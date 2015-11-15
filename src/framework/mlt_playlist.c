@@ -53,6 +53,7 @@ static int producer_get_frame( mlt_producer producer, mlt_frame_ptr frame, int i
 static int mlt_playlist_unmix( mlt_playlist self, int clip );
 static int mlt_playlist_resize_mix( mlt_playlist self, int clip, int in, int out );
 static void mlt_playlist_next( mlt_listener listener, mlt_properties owner, mlt_service self, void **args );
+static void mlt_playlist_current_changed( mlt_listener listener, mlt_properties owner, mlt_service self, void **args );
 
 /** Construct a playlist.
  *
@@ -95,11 +96,15 @@ mlt_playlist mlt_playlist_init( )
 		mlt_properties_set_position( MLT_PLAYLIST_PROPERTIES( self ), "out", -1 );
 		mlt_properties_set_position( MLT_PLAYLIST_PROPERTIES( self ), "length", 0 );
 
+		// Last played clip
+		mlt_properties_set_int( MLT_PLAYLIST_PROPERTIES( self ), "last_played_clip", -1 );
+
 		self->size = 10;
 		self->list = calloc( self->size, sizeof( playlist_entry * ) );
 		if ( self->list == NULL ) goto error2;
 		
 		mlt_events_register( MLT_PLAYLIST_PROPERTIES( self ), "playlist-next", (mlt_transmitter) mlt_playlist_next );
+		mlt_events_register( MLT_PLAYLIST_PROPERTIES( self ), "playlist-current-changed", (mlt_transmitter) mlt_playlist_current_changed );
 	}
 
 	return self;
@@ -412,6 +417,24 @@ static void mlt_playlist_next( mlt_listener listener, mlt_properties owner, mlt_
 		listener( owner, self, args[ 0 ] );
 }
 
+/** The transmitter for the producer-current-changed event
+ *
+ * Invokes the listener.
+ *
+ * \private \memberof mlt_playlist_s
+ * \param listener a function pointer that will be invoked
+ * \param owner the events object that will be passed to \p listener
+ * \param self a service that will be passed to \p listener
+ * \param args an array of pointers.
+ */
+
+static void mlt_playlist_current_changed( mlt_listener listener, mlt_properties owner, mlt_service self, void **args )
+{
+	if ( listener )
+		listener( owner, self, args[ 0 ] );
+}
+
+
 
 /** Seek in the virtual playlist.
  *
@@ -534,6 +557,12 @@ static mlt_service mlt_playlist_virtual_seek( mlt_playlist self, int *progressiv
 	// Determine if we have moved to the next entry in the playlist.
 	if ( original == total - 2 )
 		mlt_events_fire( properties, "playlist-next", i, NULL );
+
+	int last_clip = mlt_properties_get_int(properties, "last_played_clip");
+	if (last_clip != i) {
+		mlt_properties_set_int(properties, "last_played_clip", i);
+		mlt_events_fire( properties, "playlist-current-changed", i, NULL );
+	}
 
 	return MLT_PRODUCER_SERVICE( producer );
 }

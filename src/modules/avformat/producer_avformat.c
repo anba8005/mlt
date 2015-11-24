@@ -1549,7 +1549,9 @@ static int producer_get_image( mlt_frame frame, uint8_t **buffer, mlt_image_form
 				{
 					// Get position of reordered frame
 					int_position = self->video_frame->reordered_opaque;
-					pts = best_pts( self, self->video_frame->pkt_pts, self->video_frame->pkt_dts );
+					pts = av_frame_get_best_effort_timestamp(self->video_frame);
+					if(pts == AV_NOPTS_VALUE)
+						pts = best_pts( self, self->video_frame->pkt_pts, self->video_frame->pkt_dts );
 					if ( pts != AV_NOPTS_VALUE )
 					{
 						if ( self->first_pts != AV_NOPTS_VALUE )

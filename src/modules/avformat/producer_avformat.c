@@ -840,13 +840,18 @@ static void prepare_reopen( producer_avformat self )
 
 static int64_t best_pts( producer_avformat self, int64_t pts, int64_t dts )
 {
-	self->invalid_pts_counter += pts == AV_NOPTS_VALUE;
-	self->invalid_dts_counter += dts == AV_NOPTS_VALUE;
-	if ( ( self->invalid_pts_counter <= self->invalid_dts_counter
-		   || dts == AV_NOPTS_VALUE ) && pts != AV_NOPTS_VALUE )
+//	self->invalid_pts_counter += pts == AV_NOPTS_VALUE;
+//	self->invalid_dts_counter += dts == AV_NOPTS_VALUE;
+//	if ( ( self->invalid_pts_counter <= self->invalid_dts_counter
+//		   || dts == AV_NOPTS_VALUE ) && pts != AV_NOPTS_VALUE )
+//		return pts;
+//	else
+//		return dts;
+	if (pts != AV_NOPTS_VALUE) {
 		return pts;
-	else
+	} else {
 		return dts;
+	}
 }
 
 static void find_first_pts( producer_avformat self, int video_index )
@@ -1450,6 +1455,10 @@ static int producer_get_image( mlt_frame frame, uint8_t **buffer, mlt_image_form
 			else
 			{
 				ret = av_read_frame( context, &self->pkt );
+//				if (self->pkt.stream_index == 0) {
+//					fprintf(stderr,"-----\n");
+//					fprintf(stderr,"pkt -> pts:%i dts:%i\n",self->pkt.pts,self->pkt.dts);
+//				}
 				if ( ret >= 0 && !self->seekable && self->pkt.stream_index == self->audio_index )
 				{
 					if ( !av_dup_packet( &self->pkt ) )
@@ -1561,8 +1570,11 @@ static int producer_get_image( mlt_frame frame, uint8_t **buffer, mlt_image_form
 						int_position = ( int64_t )( ( av_q2d( self->video_time_base ) * pts + delay ) * source_fps + 0.5 );
 					}
 
-					if ( int_position < req_position )
+//					fprintf(stderr,"pts:%i int_position:%i req_position:%i\n", pts, int_position, req_position);
+					if ( int_position < req_position ) {
+//						fprintf(stderr,"skip pic\n");
 						got_picture = 0;
+					}
 					else if ( int_position >= req_position )
 						codec_context->skip_loop_filter = AVDISCARD_NONE;
 				}

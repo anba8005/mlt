@@ -510,7 +510,8 @@ static mlt_service mlt_playlist_virtual_seek( mlt_playlist self, int *progressiv
 				int take_next_after = mlt_properties_get_int(producer_properties, "take-next-after");
 				if (take_next_after == -1) {
 					mlt_producer_set_speed( self_producer, 0 );
-					mlt_properties_set_int(producer_properties, "take-next-after", 75);
+					// do not take next - just stop.
+					//mlt_properties_set_int(producer_properties, "take-next-after", 75);
 				} else {
 					take_next_after--;
 					if (take_next_after == 0) {

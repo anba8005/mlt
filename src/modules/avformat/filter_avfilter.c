@@ -71,7 +71,7 @@ void close_filtergraph(AVFilterGraph* graph) {
 }
 
 static void create_filtergraph(mlt_filter self, const char* filter, mlt_properties properties, int mlt_target_format,
-		int mlt_frame_format, int show_filter) {
+		int mlt_frame_format) {
 	//
 	AVFilterGraph* graph = avfilter_graph_alloc();
 	if (graph == NULL)
@@ -95,8 +95,8 @@ static void create_filtergraph(mlt_filter self, const char* filter, mlt_properti
 	snprintf(args, sizeof(args), "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:frame_rate=%d/%d:pixel_aspect=%d/%d",
 			width, height, format, frame_rate_den, frame_rate_num, frame_rate_num, frame_rate_den, frame_sar_num,
 			frame_sar_den);
-	if (show_filter)
-		mlt_log_info(self, "video input is -> %s\n", args);
+
+	mlt_log_info(self, "video input is -> %s\n", args);
 	int result = avfilter_graph_create_filter(&input, avfilter_get_by_name("buffer"), "in", args, NULL, graph);
 	if (result < 0) {
 		mlt_log_error(self, "error creating video filter input\n");
@@ -133,8 +133,7 @@ static void create_filtergraph(mlt_filter self, const char* filter, mlt_properti
 	// create graph
 	if (filter == NULL || !strcmp(filter, ""))
 		filter = "copy";
-	if (show_filter)
-		mlt_log_info(self, "video filter is -> %s\n", filter);
+	mlt_log_info(self, "video filter is -> %s\n", filter);
 	result = avfilter_graph_parse_ptr(graph, filter, &inputs, &outputs, NULL);
 	if (result < 0) {
 		mlt_log_error(self, "error creating video filter graph\n");
@@ -339,21 +338,11 @@ static int avfilter_get_image(mlt_frame frame, uint8_t **image, mlt_image_format
 		create_vfilter(vfilter, properties, frame_width, frame_height, frame_interlaced, frame_tff, target_width,
 				target_height, target_interlaced, target_tff, low_quality, &delayed_filter);
 	}
-	//
-	int position = mlt_properties_get_int(properties, "_position");
-	int last_position = mlt_properties_get_int(filter_properties, "last_position");
-	//
-	int show_filter = 1;
-	if (position != last_position && position != last_position + 1 && delayed_filter) {
-		mlt_properties_set_data(filter_properties, "filtergraph", NULL, 0, NULL, NULL);
-		show_filter = 0;
-	}
-	mlt_properties_set_int(filter_properties, "last_position", position);
 
 	// get graph
 	AVFilterGraph* graph = mlt_properties_get_data(filter_properties, "filtergraph", NULL);
 	if (graph == NULL) {
-		create_filtergraph(filter, vfilter, properties, target_format, frame_format, show_filter);
+		create_filtergraph(filter, vfilter, properties, target_format, frame_format);
 		graph = mlt_properties_get_data(filter_properties, "filtergraph", NULL);
 		if (graph == NULL) {
 			return 1;

@@ -1372,7 +1372,7 @@ static int producer_get_image( mlt_frame frame, uint8_t **buffer, mlt_image_form
 	const char *interp = mlt_properties_get( frame_properties, "rescale.interp" );
 	preseek = preseek && interp && strcmp( interp, "nearest" );
 #endif
-	int paused = seek_video( self, position, req_position, preseek );
+	int paused = seek_video( self, position, req_position, 0 ); // DISABLE PRESEEK COMPLETELY !!
 
 	// Seek might have reopened the file
 	context = self->video_format;

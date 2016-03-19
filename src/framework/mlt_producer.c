@@ -579,8 +579,23 @@ char* mlt_producer_get_length_time( mlt_producer self, mlt_time_format format )
 
 void mlt_producer_prepare_next( mlt_producer self )
 {
-	if ( mlt_producer_get_speed( self ) != 0 )
-		mlt_producer_seek( self, mlt_producer_position( self ) + mlt_producer_get_speed( self ) );
+	if ( mlt_producer_get_speed( self ) != 0 ) {
+		double speed = mlt_producer_get_speed( self );
+		mlt_properties properties = MLT_PRODUCER_PROPERTIES( self );
+		if (abs(speed) < 1) {
+			int repeat_num_frames = mlt_properties_get_int(properties , "repeat_num_frames" );
+			if (repeat_num_frames > 0) {
+				mlt_properties_set_int(properties,"repeat_num_frames", repeat_num_frames - 1);
+			} else {
+				mlt_producer_seek( self, mlt_producer_position( self ) + (speed > 0 ? 1 : -1) );
+				mlt_properties_set_int(properties,"repeat_num_frames", round(abs((double) 1 / speed)) - 1);
+			}
+		} else {
+			mlt_producer_seek( self, mlt_producer_position( self ) + speed);
+			mlt_properties_set_int(properties,"repeat_num_frames", 0);
+		}
+	}
+
 }
 
 /** Get a frame.

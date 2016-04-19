@@ -459,14 +459,14 @@ public:
 			{
 				int h, m, s, f;
 				if ( 4 == sscanf( vitc, "%d:%d:%d:%d", &h, &m, &s, &f ) )
-					m_decklinkFrame->SetTimecodeFromComponents(bmdTimecodeVITC,
+					m_decklinkFrame->SetTimecodeFromComponents(bmdTimecodeRP188,
 						h, m, s, f, bmdTimecodeFlagDefault);
 			}
 
 			// set userbits
 			vitc = mlt_properties_get( MLT_FRAME_PROPERTIES( frame ), "meta.attr.vitc.userbits" );
 			if( vitc )
-				m_decklinkFrame->SetTimecodeUserBits(bmdTimecodeVITC,
+				m_decklinkFrame->SetTimecodeUserBits(bmdTimecodeRP188,
 					mlt_properties_get_int( MLT_FRAME_PROPERTIES( frame ), "meta.attr.vitc.userbits" ));
 
 

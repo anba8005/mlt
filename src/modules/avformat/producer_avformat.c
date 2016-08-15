@@ -580,7 +580,7 @@ static int is_incomplete(AVFormatContext* ctx) {
 	}
 }
 
-static int get_basic_info( producer_avformat self, mlt_profile profile, const char *filename )
+static int get_basic_info( producer_avformat self, mlt_profile profile, const char *filename, AVInputFormat *input_format, AVDictionary *params )
 {
 	int error = 0;
 
@@ -625,14 +625,18 @@ static int get_basic_info( producer_avformat self, mlt_profile profile, const ch
 	}
 	if ( self->seekable )
 	{
+		//
+		AVDictionary *params_seek = NULL;
+		av_dict_copy(&params_seek, params, 0);
 		// Do a more rigourous test of seekable on a disposable context
 		self->seekable = av_seek_frame( format, -1, format->start_time, AVSEEK_FLAG_BACKWARD ) >= 0;
 		mlt_properties_set_int( properties, "seekable", self->seekable );
 		self->dummy_context = format;
 		self->video_format = NULL;
-		avformat_open_input( &self->video_format, filename, NULL, NULL );
+		avformat_open_input( &self->video_format, filename, input_format, &params_seek );
 		avformat_find_stream_info( self->video_format, NULL );
 		format = self->video_format;
+		av_dict_free( &params_seek );
 	}
 
 	// Fetch the width, height and aspect ratio
@@ -686,6 +690,8 @@ static int producer_open( producer_avformat self, mlt_profile profile, const cha
 	AVInputFormat *format = NULL;
 	AVDictionary *params = NULL;
 	char *filename = parse_url( profile, URL, &format, &params );
+	AVDictionary *params_audio = NULL;
+	av_dict_copy(&params_audio, params, 0);
 
 	// Now attempt to open the file or device with filename
 	error = avformat_open_input( &self->video_format, filename, format, &params ) < 0;
@@ -714,7 +720,7 @@ static int producer_open( producer_avformat self, mlt_profile profile, const cha
 		{
 			// Find default audio and video streams
 			find_default_streams( self );
-			error = get_basic_info( self, profile, filename );
+			error = get_basic_info( self, profile, filename, format, params_audio );
 
 			// Initialize position info
 			self->first_pts = AV_NOPTS_VALUE;
@@ -730,7 +736,7 @@ static int producer_open( producer_avformat self, mlt_profile profile, const cha
 					if ( self->seekable )
 					{
 						// And open again for our audio context
-						avformat_open_input( &self->audio_format, filename, NULL, NULL );
+						avformat_open_input( &self->audio_format, filename, format, &params_audio );
 						apply_properties( self->audio_format, properties, AV_OPT_FLAG_DECODING_PARAM );
 						if ( self->audio_format->iformat && self->audio_format->iformat->priv_class && self->audio_format->priv_data )
 							apply_properties( self->audio_format->priv_data, properties, AV_OPT_FLAG_DECODING_PARAM );
@@ -757,6 +763,7 @@ static int producer_open( producer_avformat self, mlt_profile profile, const cha
 			}
 		}
 	}
+	av_dict_free( &params_audio );
 	free( filename );
 	if ( !error )
 	{

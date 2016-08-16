@@ -623,22 +623,21 @@ static int get_basic_info( producer_avformat self, mlt_profile profile, const ch
 		// protocols can indicate if they support seeking
 		self->seekable = format->pb->seekable;
 	}
-	mlt_properties_set_int( properties, "seekable", self->seekable );
-//	if ( self->seekable )
-//	{
-//		//
-//		AVDictionary *params_seek = NULL;
-//		av_dict_copy(&params_seek, params, 0);
-//		// Do a more rigourous test of seekable on a disposable context
-//		self->seekable = av_seek_frame( format, -1, format->start_time, AVSEEK_FLAG_BACKWARD ) >= 0;
-//		mlt_properties_set_int( properties, "seekable", self->seekable );
-//		self->dummy_context = format;
-//		self->video_format = NULL;
-//		avformat_open_input( &self->video_format, filename, input_format, &params_seek );
-//		avformat_find_stream_info( self->video_format, NULL );
-//		format = self->video_format;
-//		av_dict_free( &params_seek );
-//	}
+	if ( self->seekable )
+	{
+		//
+		AVDictionary *params_seek = NULL;
+		av_dict_copy(&params_seek, params, 0);
+		// Do a more rigourous test of seekable on a disposable context
+		self->seekable = av_seek_frame( format, -1, format->start_time, AVSEEK_FLAG_BACKWARD ) >= 0;
+		mlt_properties_set_int( properties, "seekable", self->seekable );
+		self->dummy_context = format;
+		self->video_format = NULL;
+		avformat_open_input( &self->video_format, filename, input_format, &params_seek );
+		avformat_find_stream_info( self->video_format, NULL );
+		format = self->video_format;
+		av_dict_free( &params_seek );
+	}
 
 	// Fetch the width, height and aspect ratio
 	if ( self->video_index != -1 )

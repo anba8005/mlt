@@ -210,7 +210,8 @@ mlt_producer producer_avformat_init( mlt_profile profile, const char *service, c
 #ifdef VDPAU
 				mlt_service_cache_set_size( MLT_PRODUCER_SERVICE(producer), "producer_avformat", 5 );
 #endif
-				mlt_service_cache_put( MLT_PRODUCER_SERVICE(producer), "producer_avformat", self, 0, (mlt_destructor) producer_avformat_close );
+//				mlt_service_cache_put( MLT_PRODUCER_SERVICE(producer), "producer_avformat", self, 0, (mlt_destructor) producer_avformat_close );
+				producer_avformat_close( self );
 
 				mlt_properties_set_int( properties, "mute_on_pause",  1 );
 			}

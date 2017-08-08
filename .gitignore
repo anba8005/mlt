@@ -32,3 +32,4 @@ src/examples/play
 .settings/
 .cproject
 .project
+.DS_Store

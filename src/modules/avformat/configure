@@ -95,7 +95,12 @@ else
 			echo "LDFLAGS+=$static_ffmpeg/lib/libswscale.a $static_ffmpeg/lib/libswresample.a" >> config.mak
 			[ $targetos = "Darwin" ] &&
 			 	echo "LDFLAGS+=-single_module" >> config.mak
-			echo "LDFLAGS+=-Wl,-Bsymbolic" >> config.mak
+			if [ "$targetos" = "Darwin" ]
+			then
+				echo "LDFLAGS+=-Wl" >> config.mak
+			else
+				echo "LDFLAGS+=-Wl,-Bsymbolic" >> config.mak
+			fi
 			extra_libs="$extra_libs -lm -lz -lbz2"
 			
 			if [ "$vdpau" = "true" ]
